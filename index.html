@@ -385,9 +385,22 @@
       restartIfPlaying();
     });
 
-    beatsPerBarInput.addEventListener("input", () => {
-      const beats = clampBeats(parseInt(beatsPerBarInput.value || "4", 10));
-      beatsPerBarInput.value = beats;
+    // 拍子：入力途中はいじらず、確定したら補正＆反映
+    beatsPerBarInput.addEventListener("change", () => {
+      let raw = parseInt(beatsPerBarInput.value, 10);
+
+      // 空や変な値 → デフォルト4
+      if (isNaN(raw)) {
+        raw = 4;
+      }
+
+      const beats = clampBeats(raw); // 1〜8に収める
+
+      // 範囲外だった場合だけ書き戻す
+      if (beats !== raw) {
+        beatsPerBarInput.value = beats;
+      }
+
       beatsLabel.textContent = beats + " 拍";
       currentBeat = 0;
       updateIndicatorDots();
