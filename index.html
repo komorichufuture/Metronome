@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <!-- スマホ向け表示 -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>シンプルメトロノーム（高精度・スマホ対応）</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #111827;
+      color: #e5e7eb;
+      padding: 16px; /* スマホで上下左右に余白 */
+    }
+    .metronome {
+      background: #1f2937;
+      padding: 20px 18px;
+      border-radius: 16px;
+      box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5);
+      width: min(400px, 100%);   /* 画面幅にフィット */
+      margin: 0 auto;            /* 中央寄せ */
+    }
+    h1 {
+      margin: 0 0 8px;
+      font-size: 20px;
+      text-align: center;
+    }
+    .subtitle {
+      text-align: center;
+      font-size: 12px;
+      color: #9ca3af;
+      margin-bottom: 16px;
+    }
+    .control-group {
+      margin-bottom: 16px;
+    }
+    .control-group label {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 13px;
+      margin-bottom: 4px;
+    }
+    .control-group input[type="number"] {
+      width: 90px;
+      padding: 6px 8px;
+      border-radius: 8px;
+      border: 1px solid #4b5563;
+      background: #020617;
+      color: #e5e7eb;
+      font-size: 14px;
+    }
+    .control-group input[type="range"] {
+      width: 100%;
+      touch-action: pan-y; /* スクロールとの競合を軽減 */
+    }
+    .flex-row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      justify-content: space-between;
+    }
+    button {
+      width: 100%;
+      padding: 12px 0;
+      border-radius: 999px;
+      border: none;
+      cursor: pointer;
+      font-size: 15px;
+      font-weight: 600;
+      background: #10b981;
+      color: #022c22;
+      transition: transform 0.06s ease, box-shadow 0.06s ease, background 0.2s;
+      box-shadow: 0 6px 16px rgba(16, 185, 129, 0.3);
+      -webkit-tap-highlight-color: transparent; /* タップ時のハイライト削除 */
+    }
+    button:hover {
+      background: #34d399;
+    }
+    button:active {
+      transform: translateY(1px);
+      box-shadow: 0 3px 10px rgba(16, 185, 129, 0.3);
+    }
+    button.stop {
+      background: #ef4444;
+      color: #fee2e2;
+      box-shadow: 0 6px 16px rgba(239, 68, 68, 0.4);
+    }
+    button.stop:hover {
+      background: #f97373;
+    }
+    .indicator-row {
+      display: flex;
+      justify-content: center;
+      gap: 8px;
+      margin-top: 16px;
+      flex-wrap: wrap; /* 拍数が多い時に折り返し */
+    }
+    .beat-dot {
+      width: 16px;
+      height: 16px;
+      border-radius: 999px;
+      background: #374151;
+      opacity: 0.4;
+      transition: background 0.12s, transform 0.12s, opacity 0.12s;
+    }
+    .beat-dot.active {
+      opacity: 1;
+      transform: scale(1.25);
+    }
+    .beat-dot.accent {
+      border: 2px solid #fbbf24;
+    }
+    .beat-dot.accent.active {
+      background: #fbbf24;
+    }
+    .small-text {
+      margin-top: 10px;
+      font-size: 11px;
+      color: #9ca3af;
+      text-align: center;
+      line-height: 1.4;
+    }
+
+    /* かなり小さい画面向け微調整 */
+    @media (max-width: 360px) {
+      .metronome {
+        padding: 16px 14px;
+        border-radius: 14px;
+      }
+      h1 {
+        font-size: 18px;
+      }
+      .beat-dot {
+        width: 14px;
+        height: 14px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="metronome">
+    <h1>メトロノーム</h1>
+    <div class="subtitle">高精度スケジューリング版（AudioContext）</div>
+
+    <!-- BPM -->
+    <div class="control-group">
+      <label>
+        <span>BPM</span>
+        <span><span id="bpmDisplay">120</span> bpm</span>
+      </label>
+      <input id="bpmSlider" type="range" min="40" max="240" step="1" value="120">
+      <div class="flex-row" style="margin-top: 4px;">
+        <span style="font-size: 11px; color:#9ca3af;">数値で調整</span>
+        <input
+          id="bpmInput"
+          type="number"
+          min="40"
+          max="240"
+          value="120"
+          inputmode="numeric"
+        >
+      </div>
+    </div>
+
+    <!-- 拍子（1小節あたりの拍数） -->
+    <div class="control-group">
+      <label for="beatsPerBar">
+        <span>拍子（1小節の拍数）</span>
+        <span id="beatsLabel">4 拍</span>
+      </label>
+      <input
+        id="beatsPerBar"
+        type="number"
+        min="1"
+        max="8"
+        value="4"
+        inputmode="numeric"
+      >
+    </div>
+
+    <!-- ボタン -->
+    <button id="toggleBtn">▶ 再生</button>
+
+    <!-- 拍インジケータ -->
+    <div id="indicatorRow" class="indicator-row"></div>
+    <div class="small-text">
+      ● 一番左がアクセント（1拍目）<br>
+      ● 再生中にBPMや拍数を変えると即反映されます
+    </div>
+  </div>
+
+  <script>
+    // ========= オーディオ部分 =========
+    let audioCtx = null;
+
+    function initAudioContext() {
+      if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      } else if (audioCtx.state === "suspended") {
+        audioCtx.resume();
+      }
+    }
+
+    // time を指定してクリックを鳴らす（高精度スケジューリング用）
+    function playClick(isAccent, time) {
+      if (!audioCtx) return;
+      const t = (typeof time === "number") ? time : audioCtx.currentTime;
+
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+
+      // アクセントと通常拍で高さを変える
+      osc.frequency.value = isAccent ? 2000 : 1300;
+
+      // 超短いエンベロープで「カチッ」
+      gain.gain.setValueAtTime(1, t);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.03);
+
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+
+      osc.start(t);
+      osc.stop(t + 0.05);
+    }
+
+    // ========= メトロノームのロジック =========
+    const bpmSlider = document.getElementById("bpmSlider");
+    const bpmInput = document.getElementById("bpmInput");
+    const bpmDisplay = document.getElementById("bpmDisplay");
+    const beatsPerBarInput = document.getElementById("beatsPerBar");
+    const beatsLabel = document.getElementById("beatsLabel");
+    const toggleBtn = document.getElementById("toggleBtn");
+    const indicatorRow = document.getElementById("indicatorRow");
+
+    let isPlaying = false;
+    let schedulerTimerID = null;
+    let currentBeat = 0;      // 0〜(beatsPerBar - 1)
+    let nextNoteTime = 0.0;   // AudioContext 時間（秒）
+
+    const lookahead = 25.0;        // scheduler を呼ぶ間隔（ms）
+    const scheduleAheadTime = 0.1; // どれだけ先まで予約するか（秒）
+
+    function clampBPM(value) {
+      if (isNaN(value)) return 120;
+      return Math.min(240, Math.max(40, value));
+    }
+
+    function clampBeats(value) {
+      if (isNaN(value)) return 4;
+      return Math.min(8, Math.max(1, value));
+    }
+
+    function updateIndicatorDots() {
+      const beatsPerBar = clampBeats(parseInt(beatsPerBarInput.value || "4", 10));
+      indicatorRow.innerHTML = "";
+      for (let i = 0; i < beatsPerBar; i++) {
+        const dot = document.createElement("div");
+        dot.classList.add("beat-dot");
+        if (i === 0) {
+          dot.classList.add("accent");
+        }
+        if (i === currentBeat) {
+          dot.classList.add("active");
+        }
+        indicatorRow.appendChild(dot);
+      }
+    }
+
+    function setActiveBeat() {
+      const dots = indicatorRow.querySelectorAll(".beat-dot");
+      dots.forEach((d, idx) => {
+        d.classList.toggle("active", idx === currentBeat);
+      });
+    }
+
+    // 1拍進める（次のノートの時間を計算）
+    function advanceNote() {
+      const beatsPerBar = clampBeats(parseInt(beatsPerBarInput.value || "4", 10));
+      const bpm = clampBPM(parseInt(bpmInput.value || "120", 10));
+      const secondsPerBeat = 60.0 / bpm;
+
+      nextNoteTime += secondsPerBeat;                 // 次の発音時刻
+      currentBeat = (currentBeat + 1) % beatsPerBar;  // 拍インデックス更新
+    }
+
+    // クリックを future time にスケジュールする
+    function scheduleNote(beatNumber, time) {
+      const isAccent = (beatNumber === 0);
+      playClick(isAccent, time);
+    }
+
+    // 高精度スケジューラ
+    function scheduler() {
+      if (!isPlaying || !audioCtx) return;
+
+      // AudioContext の現在時刻から scheduleAheadTime 秒先までをカバーするように、クリックを予約
+      while (nextNoteTime < audioCtx.currentTime + scheduleAheadTime) {
+        // 今の currentBeat に対してクリックを予約
+        scheduleNote(currentBeat, nextNoteTime);
+
+        // ビジュアル更新（少し先行するが、テンポ精度優先）
+        setActiveBeat();
+
+        // 次の拍へ進める
+        advanceNote();
+      }
+
+      // 次回のスケジューラ呼び出し予約
+      schedulerTimerID = setTimeout(scheduler, lookahead);
+    }
+
+    function startMetronome() {
+      if (isPlaying) return;
+      initAudioContext();
+      if (!audioCtx) return;
+
+      currentBeat = 0;
+      updateIndicatorDots();
+
+      // ほんの少し先（0.05秒後）からスタート
+      nextNoteTime = audioCtx.currentTime + 0.05;
+
+      isPlaying = true;
+      toggleBtn.textContent = "■ 停止";
+      toggleBtn.classList.add("stop");
+
+      scheduler();
+    }
+
+    function stopMetronome() {
+      if (!isPlaying) return;
+      isPlaying = false;
+
+      if (schedulerTimerID !== null) {
+        clearTimeout(schedulerTimerID);
+        schedulerTimerID = null;
+      }
+
+      toggleBtn.textContent = "▶ 再生";
+      toggleBtn.classList.remove("stop");
+
+      currentBeat = 0;
+      updateIndicatorDots();
+    }
+
+    // パラメータ変更時、再生中ならテンポを再同期
+    function restartIfPlaying() {
+      if (!isPlaying || !audioCtx) return;
+
+      if (schedulerTimerID !== null) {
+        clearTimeout(schedulerTimerID);
+        schedulerTimerID = null;
+      }
+
+      currentBeat = 0;
+      updateIndicatorDots();
+      nextNoteTime = audioCtx.currentTime + 0.05;
+
+      scheduler();
+    }
+
+    // ========= イベント設定 =========
+    // BPMスライダーと数値入力を同期
+    bpmSlider.addEventListener("input", () => {
+      const bpm = clampBPM(parseInt(bpmSlider.value, 10));
+      bpmInput.value = bpm;
+      bpmDisplay.textContent = bpm;
+      restartIfPlaying();
+    });
+
+    bpmInput.addEventListener("input", () => {
+      const bpm = clampBPM(parseInt(bpmInput.value || "120", 10));
+      bpmInput.value = bpm;
+      bpmSlider.value = bpm;
+      bpmDisplay.textContent = bpm;
+      restartIfPlaying();
+    });
+
+    beatsPerBarInput.addEventListener("input", () => {
+      const beats = clampBeats(parseInt(beatsPerBarInput.value || "4", 10));
+      beatsPerBarInput.value = beats;
+      beatsLabel.textContent = beats + " 拍";
+      currentBeat = 0;
+      updateIndicatorDots();
+      restartIfPlaying();
+    });
+
+    toggleBtn.addEventListener("click", () => {
+      if (!isPlaying) {
+        startMetronome();
+      } else {
+        stopMetronome();
+      }
+    });
+
+    // 初期表示
+    updateIndicatorDots();
+  </script>
+</body>
+</html>
