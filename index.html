@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <!-- スマホ向け表示 -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>メトロノーム（ジャンル＋テンポ階段）</title>
+  <title>Metronome</title>
   <style>
     * {
       box-sizing: border-box;
@@ -29,7 +29,7 @@
       margin: 0 auto;
     }
     h1 {
-      margin: 0 0 8px;
+      margin: 0 0 4px;
       font-size: 20px;
       text-align: center;
     }
@@ -37,7 +37,27 @@
       text-align: center;
       font-size: 12px;
       color: #9ca3af;
-      margin-bottom: 16px;
+      margin-bottom: 8px;
+    }
+    .lang-switch {
+      display: flex;
+      justify-content: flex-end;
+      gap: 6px;
+      margin-bottom: 10px;
+    }
+    .lang-btn {
+      padding: 4px 10px;
+      border-radius: 999px;
+      border: 1px solid #4b5563;
+      background: #111827;
+      color: #9ca3af;
+      font-size: 11px;
+      cursor: pointer;
+    }
+    .lang-btn.active {
+      background: #2563eb;
+      border-color: #2563eb;
+      color: #f9fafb;
     }
     .control-group {
       margin-bottom: 16px;
@@ -174,8 +194,16 @@
 </head>
 <body>
   <div class="metronome">
-    <h1>メトロノーム</h1>
-    <div class="subtitle">高精度＋サブディビジョン＋ジャンル＋テンポ階段</div>
+    <h1 id="appTitle">メトロノーム</h1>
+    <div id="subtitle" class="subtitle">
+      高精度＋サブディビジョン＋ジャンル＋テンポ階段
+    </div>
+
+    <!-- 言語切り替え -->
+    <div class="lang-switch">
+      <button class="lang-btn" data-lang="ja">日本語</button>
+      <button class="lang-btn" data-lang="en">English</button>
+    </div>
 
     <!-- BPM -->
     <div class="control-group">
@@ -185,7 +213,7 @@
       </label>
       <input id="bpmSlider" type="range" min="40" max="240" step="1" value="120">
       <div class="flex-row" style="margin-top: 4px;">
-        <span style="font-size: 11px; color:#9ca3af;">数値で調整</span>
+        <span id="bpmInputHint" style="font-size: 11px; color:#9ca3af;">数値で調整</span>
         <input
           id="bpmInput"
           type="number"
@@ -200,8 +228,11 @@
     <!-- 拍子 -->
     <div class="control-group">
       <label for="beatsPerBar">
-        <span>拍子（1小節の拍数）</span>
-        <span id="beatsLabel">4 拍</span>
+        <span id="beatsLabelTitleText">拍子（1小節の拍数）</span>
+        <span id="beatsLabel">
+          <span id="beatsLabelCount">4</span>
+          <span id="beatsLabelUnit"> 拍</span>
+        </span>
       </label>
       <input
         id="beatsPerBar"
@@ -216,7 +247,7 @@
     <!-- 細かいリズム -->
     <div class="control-group">
       <label for="subdivision">
-        <span>細かいリズム</span>
+        <span id="subdivisionLabelText">細かいリズム</span>
         <span id="subLabel">なし</span>
       </label>
       <select id="subdivision">
@@ -230,7 +261,7 @@
     <!-- プリセット -->
     <div class="control-group">
       <label for="preset">
-        <span>リズムプリセット</span>
+        <span id="presetLabelText">リズムプリセット</span>
         <span id="presetLabel">基本</span>
       </label>
       <select id="preset">
@@ -244,27 +275,27 @@
     <!-- テンポ階段モード -->
     <div class="control-group">
       <label>
-        <span>テンポ階段モード</span>
+        <span id="ladderTitleText">テンポ階段モード</span>
         <span id="ladderStatus">OFF</span>
       </label>
       <div class="flex-row small">
-        <span>上げ幅</span>
+        <span id="ladderStepLabelLeft">上げ幅</span>
         <input id="ladderStep" type="number" min="1" max="20" value="4" inputmode="numeric">
-        <span>BPM</span>
+        <span id="ladderStepLabelRight">BPM</span>
       </div>
       <div class="flex-row small" style="margin-top:4px;">
-        <span>間隔</span>
+        <span id="ladderIntervalLabelLeft">間隔</span>
         <input id="ladderInterval" type="number" min="5" max="300" value="30" inputmode="numeric">
-        <span>秒ごと</span>
+        <span id="ladderIntervalLabelRight">秒ごと</span>
       </div>
       <div class="flex-row small" style="margin-top:4px;">
-        <span>回数</span>
+        <span id="ladderCountLabelLeft">回数</span>
         <input id="ladderCount" type="number" min="1" max="50" value="10" inputmode="numeric">
-        <span>回</span>
+        <span id="ladderCountLabelRight">回</span>
       </div>
       <label class="ladder-toggle">
         <input type="checkbox" id="ladderEnabled">
-        <span>テンポ階段を有効にする（再生中のみ動作）</span>
+        <span id="ladderToggleText">テンポ階段を有効にする（再生中のみ動作）</span>
       </label>
     </div>
 
@@ -273,13 +304,87 @@
 
     <!-- 拍インジケータ -->
     <div id="indicatorRow" class="indicator-row"></div>
-    <div class="small-text">
+    <div id="smallText" class="small-text">
       ● 一番左がアクセント（1拍目）<br>
       ● プリセット＋細かいリズム＋テンポ階段で、ジャンル別のノリとテンポアップ練習ができます
     </div>
   </div>
 
   <script>
+    // ====== i18n 定義 ======
+    const i18n = {
+      ja: {
+        appTitle: "メトロノーム",
+        subtitle: "高精度＋サブディビジョン＋ジャンル＋テンポ階段",
+        bpmInputHint: "数値で調整",
+        beatsLabelTitle: "拍子（1小節の拍数）",
+        beatsUnit: " 拍",
+        subdivisionLabel: "細かいリズム",
+        subdivisionOptions: [
+          "なし（1拍のみ）",
+          "8分音符（1拍を2つ）",
+          "3連符（1拍を3つ）",
+          "16分音符（1拍を4つ）"
+        ],
+        subdivisionNone: "なし",
+        subdivision8th: "8分音符（2分割）",
+        subdivisionTriplet: "3連符（3分割）",
+        subdivision16th: "16分音符（4分割）",
+        presetLabel: "リズムプリセット",
+        presetBasic: "基本（素直なカチッ）",
+        presetRock: "ロック 8ビート",
+        presetFunk: "ファンク 16ビート",
+        presetPops: "ポップス 16ビート",
+        ladderTitle: "テンポ階段モード",
+        ladderStepLeft: "上げ幅",
+        ladderStepRight: "BPM",
+        ladderIntervalLeft: "間隔",
+        ladderIntervalRight: "秒ごと",
+        ladderCountLeft: "回数",
+        ladderCountRight: "回",
+        ladderToggleText: "テンポ階段を有効にする（再生中のみ動作）",
+        playLabel: "▶ 再生",
+        stopLabel: "■ 停止",
+        smallText: "● 一番左がアクセント（1拍目）\n● プリセット＋細かいリズム＋テンポ階段で、ジャンル別のノリとテンポアップ練習ができます"
+      },
+      en: {
+        appTitle: "Metronome",
+        subtitle: "High-precision + subdivision + groove presets + tempo ladder",
+        bpmInputHint: "Type BPM",
+        beatsLabelTitle: "Time signature (beats per bar)",
+        beatsUnit: " beats",
+        subdivisionLabel: "Subdivision",
+        subdivisionOptions: [
+          "None (quarter notes only)",
+          "8th notes (2 per beat)",
+          "Triplets (3 per beat)",
+          "16th notes (4 per beat)"
+        ],
+        subdivisionNone: "None",
+        subdivision8th: "8th notes (2 per beat)",
+        subdivisionTriplet: "Triplets (3 per beat)",
+        subdivision16th: "16th notes (4 per beat)",
+        presetLabel: "Rhythm preset",
+        presetBasic: "Basic (straight click)",
+        presetRock: "Rock 8-beat",
+        presetFunk: "Funk 16-beat",
+        presetPops: "Pops 16-beat",
+        ladderTitle: "Tempo ladder",
+        ladderStepLeft: "Step",
+        ladderStepRight: "BPM",
+        ladderIntervalLeft: "Interval",
+        ladderIntervalRight: "seconds",
+        ladderCountLeft: "Steps",
+        ladderCountRight: "times",
+        ladderToggleText: "Enable tempo ladder (works while playing)",
+        playLabel: "▶ Start",
+        stopLabel: "■ Stop",
+        smallText: "● The leftmost dot is the accent (beat 1)\n● Use presets + subdivision + tempo ladder for groove and tempo-up practice"
+      }
+    };
+
+    let currentLang = "ja";
+
     // ========= オーディオ部分 =========
     let audioCtx = null;
 
@@ -325,22 +430,40 @@
     }
 
     // ========= DOM参照 =========
+    const appTitleEl = document.getElementById("appTitle");
+    const subtitleEl = document.getElementById("subtitle");
     const bpmSlider = document.getElementById("bpmSlider");
     const bpmInput = document.getElementById("bpmInput");
     const bpmDisplay = document.getElementById("bpmDisplay");
+    const bpmInputHint = document.getElementById("bpmInputHint");
     const beatsPerBarInput = document.getElementById("beatsPerBar");
-    const beatsLabel = document.getElementById("beatsLabel");
+    const beatsLabelTitleText = document.getElementById("beatsLabelTitleText");
+    const beatsLabelCount = document.getElementById("beatsLabelCount");
+    const beatsLabelUnit = document.getElementById("beatsLabelUnit");
     const subdivisionSelect = document.getElementById("subdivision");
+    const subdivisionLabelText = document.getElementById("subdivisionLabelText");
     const subLabel = document.getElementById("subLabel");
     const presetSelect = document.getElementById("preset");
+    const presetLabelText = document.getElementById("presetLabelText");
     const presetLabel = document.getElementById("presetLabel");
     const ladderStepInput = document.getElementById("ladderStep");
     const ladderIntervalInput = document.getElementById("ladderInterval");
     const ladderCountInput = document.getElementById("ladderCount");
     const ladderEnabledCheckbox = document.getElementById("ladderEnabled");
     const ladderStatus = document.getElementById("ladderStatus");
+    const ladderTitleText = document.getElementById("ladderTitleText");
+    const ladderStepLabelLeft = document.getElementById("ladderStepLabelLeft");
+    const ladderStepLabelRight = document.getElementById("ladderStepLabelRight");
+    const ladderIntervalLabelLeft = document.getElementById("ladderIntervalLabelLeft");
+    const ladderIntervalLabelRight = document.getElementById("ladderIntervalLabelRight");
+    const ladderCountLabelLeft = document.getElementById("ladderCountLabelLeft");
+    const ladderCountLabelRight = document.getElementById("ladderCountLabelRight");
+    const ladderToggleText = document.getElementById("ladderToggleText");
+
     const toggleBtn = document.getElementById("toggleBtn");
     const indicatorRow = document.getElementById("indicatorRow");
+    const smallTextEl = document.getElementById("smallText");
+    const langButtons = document.querySelectorAll(".lang-btn");
 
     // ========= 状態 =========
     let isPlaying = false;
@@ -380,19 +503,21 @@
 
     function updateSubLabel() {
       const steps = getStepsPerBeat();
-      let text = "なし";
-      if (steps === 2) text = "8分音符（2分割）";
-      else if (steps === 3) text = "3連符（3分割）";
-      else if (steps === 4) text = "16分音符（4分割）";
-      subLabel.textContent = text;
+      const t = i18n[currentLang];
+      let key = "subdivisionNone";
+      if (steps === 2) key = "subdivision8th";
+      else if (steps === 3) key = "subdivisionTriplet";
+      else if (steps === 4) key = "subdivision16th";
+      subLabel.textContent = t[key];
     }
 
     function updatePresetLabel() {
       const v = presetSelect.value;
-      let text = "基本";
-      if (v === "rock") text = "ロック 8ビート";
-      else if (v === "funk") text = "ファンク 16ビート";
-      else if (v === "pops") text = "ポップス 16ビート";
+      const t = i18n[currentLang];
+      let text = t.presetBasic;
+      if (v === "rock") text = t.presetRock;
+      else if (v === "funk") text = t.presetFunk;
+      else if (v === "pops") text = t.presetPops;
       presetLabel.textContent = text;
     }
 
@@ -526,7 +651,7 @@
     }
 
     function startLadderIfNeeded() {
-      stopLadderTimer(); // 安全のため一旦止める
+      stopLadderTimer();
       if (!ladderEnabledCheckbox.checked) {
         setLadderStatus(false);
         return;
@@ -574,7 +699,6 @@
         let currentBpm = clampBPM(parseInt(bpmInput.value || "120", 10));
         let newBpm = clampBPM(currentBpm + stepAmount);
 
-        // BPM更新
         bpmInput.value = newBpm;
         bpmSlider.value = newBpm;
         bpmDisplay.textContent = newBpm;
@@ -602,11 +726,11 @@
       nextNoteTime = audioCtx.currentTime + 0.05;
 
       isPlaying = true;
-      toggleBtn.textContent = "■ 停止";
+      toggleBtn.textContent = i18n[currentLang].stopLabel;
       toggleBtn.classList.add("stop");
 
       scheduler();
-      startLadderIfNeeded(); // 再生開始時に階段モードもスタート
+      startLadderIfNeeded();
     }
 
     function stopMetronome() {
@@ -620,7 +744,7 @@
 
       stopLadderTimer();
 
-      toggleBtn.textContent = "▶ 再生";
+      toggleBtn.textContent = i18n[currentLang].playLabel;
       toggleBtn.classList.remove("stop");
 
       currentBeat = 0;
@@ -644,6 +768,58 @@
       scheduler();
     }
 
+    // ========= i18n 適用 =========
+    function applyTranslations() {
+      const t = i18n[currentLang];
+
+      appTitleEl.textContent = t.appTitle;
+      subtitleEl.textContent = t.subtitle;
+      bpmInputHint.textContent = t.bpmInputHint;
+      beatsLabelTitleText.textContent = t.beatsLabelTitle;
+      beatsLabelUnit.textContent = t.beatsUnit;
+      subdivisionLabelText.textContent = t.subdivisionLabel;
+      presetLabelText.textContent = t.presetLabel;
+      ladderTitleText.textContent = t.ladderTitle;
+      ladderStepLabelLeft.textContent = t.ladderStepLeft;
+      ladderStepLabelRight.textContent = t.ladderStepRight;
+      ladderIntervalLabelLeft.textContent = t.ladderIntervalLeft;
+      ladderIntervalLabelRight.textContent = t.ladderIntervalRight;
+      ladderCountLabelLeft.textContent = t.ladderCountLeft;
+      ladderCountLabelRight.textContent = t.ladderCountRight;
+      ladderToggleText.textContent = t.ladderToggleText;
+
+      // サブディビジョンのセレクト
+      const subOpts = subdivisionSelect.options;
+      const so = t.subdivisionOptions;
+      for (let i = 0; i < subOpts.length && i < so.length; i++) {
+        subOpts[i].textContent = so[i];
+      }
+
+      // プリセットセレクト
+      const optBasic = presetSelect.querySelector('option[value="basic"]');
+      const optRock = presetSelect.querySelector('option[value="rock"]');
+      const optFunk = presetSelect.querySelector('option[value="funk"]');
+      const optPops = presetSelect.querySelector('option[value="pops"]');
+      if (optBasic) optBasic.textContent = t.presetBasic;
+      if (optRock) optRock.textContent = t.presetRock;
+      if (optFunk) optFunk.textContent = t.presetFunk;
+      if (optPops) optPops.textContent = t.presetPops;
+
+      // 拍数ラベルの値＋単位
+      const beats = clampBeats(parseInt(beatsPerBarInput.value || "4", 10));
+      beatsLabelCount.textContent = beats;
+
+      // サブラベル・プリセットラベルを現在値から再計算
+      updateSubLabel();
+      updatePresetLabel();
+
+      // 小さい説明文
+      smallTextEl.innerHTML = t.smallText.replace(/\n/g, "<br>");
+
+      // 再生ボタンの表示
+      toggleBtn.textContent = isPlaying ? t.stopLabel : t.playLabel;
+    }
+
     // ========= イベント設定 =========
 
     // スライダー → 即反映
@@ -658,11 +834,8 @@
     bpmInput.addEventListener("input", () => {
       const raw = bpmInput.value;
       const num = parseInt(raw, 10);
-
       if (isNaN(num)) return;
-
       bpmDisplay.textContent = num;
-
       if (num >= 40 && num <= 240) {
         bpmSlider.value = num;
         restartIfPlaying();
@@ -685,7 +858,7 @@
       if (isNaN(raw)) raw = 4;
       const beats = clampBeats(raw);
       if (beats !== raw) beatsPerBarInput.value = beats;
-      beatsLabel.textContent = beats + " 拍";
+      beatsLabelCount.textContent = beats;
       currentBeat = 0;
       currentStep = 0;
       updateIndicatorDots();
@@ -713,14 +886,12 @@
     // テンポ階段 ON/OFF
     ladderEnabledCheckbox.addEventListener("change", () => {
       if (!isPlaying) {
-        // 再生前にONだけしておくパターン
         if (ladderEnabledCheckbox.checked) {
-          setLadderStatus(false); // 再生開始まで保留
+          setLadderStatus(false);
         } else {
           stopLadderTimer();
         }
       } else {
-        // 再生中にON/OFFしたとき
         if (ladderEnabledCheckbox.checked) {
           startLadderIfNeeded();
         } else {
@@ -737,11 +908,28 @@
       }
     });
 
-    // 初期表示
-    updateSubLabel();
-    updatePresetLabel();
-    updateIndicatorDots();
-    setLadderStatus(false);
+    // 言語切り替え
+    langButtons.forEach(btn => {
+      btn.addEventListener("click", () => {
+        const lang = btn.getAttribute("data-lang");
+        currentLang = (lang === "en") ? "en" : "ja";
+        langButtons.forEach(b => b.classList.toggle("active", b === btn));
+        applyTranslations();
+      });
+    });
+
+    // 初期言語判定 & 初期表示
+    (function initLang() {
+      const userLang = (navigator.language || navigator.userLanguage || "en").toLowerCase();
+      currentLang = userLang.startsWith("ja") ? "ja" : "en";
+      langButtons.forEach(btn => {
+        const lang = btn.getAttribute("data-lang");
+        btn.classList.toggle("active", lang === currentLang);
+      });
+      applyTranslations();
+      updateIndicatorDots();
+      setLadderStatus(false);
+    })();
   </script>
 </body>
 </html>
