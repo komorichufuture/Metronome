@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <!-- スマホ向け表示 -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>メトロノーム（ジャンルプリセット付き）</title>
+  <title>メトロノーム（ジャンル＋テンポ階段）</title>
   <style>
     * {
       box-sizing: border-box;
@@ -76,6 +76,25 @@
       gap: 8px;
       align-items: center;
       justify-content: space-between;
+    }
+    .flex-row.small > span {
+      font-size: 11px;
+      color: #9ca3af;
+    }
+    .flex-row.small input[type="number"] {
+      width: 70px;
+    }
+    .ladder-toggle {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: #e5e7eb;
+      margin-top: 4px;
+    }
+    .ladder-toggle input {
+      width: 16px;
+      height: 16px;
     }
     button {
       width: 100%;
@@ -156,7 +175,7 @@
 <body>
   <div class="metronome">
     <h1>メトロノーム</h1>
-    <div class="subtitle">高精度＋サブディビジョン＋ジャンルプリセット</div>
+    <div class="subtitle">高精度＋サブディビジョン＋ジャンル＋テンポ階段</div>
 
     <!-- BPM -->
     <div class="control-group">
@@ -222,16 +241,46 @@
       </select>
     </div>
 
+    <!-- テンポ階段モード -->
+    <div class="control-group">
+      <label>
+        <span>テンポ階段モード</span>
+        <span id="ladderStatus">OFF</span>
+      </label>
+      <div class="flex-row small">
+        <span>上げ幅</span>
+        <input id="ladderStep" type="number" min="1" max="20" value="4" inputmode="numeric">
+        <span>BPM</span>
+      </div>
+      <div class="flex-row small" style="margin-top:4px;">
+        <span>間隔</span>
+        <input id="ladderInterval" type="number" min="5" max="300" value="30" inputmode="numeric">
+        <span>秒ごと</span>
+      </div>
+      <div class="flex-row small" style="margin-top:4px;">
+        <span>回数</span>
+        <input id="ladderCount" type="number" min="1" max="50" value="10" inputmode="numeric">
+        <span>回</span>
+      </div>
+      <label class="ladder-toggle">
+        <input type="checkbox" id="ladderEnabled">
+        <span>テンポ階段を有効にする（再生中のみ動作）</span>
+      </label>
+    </div>
+
+    <!-- 再生ボタン -->
     <button id="toggleBtn">▶ 再生</button>
 
+    <!-- 拍インジケータ -->
     <div id="indicatorRow" class="indicator-row"></div>
     <div class="small-text">
       ● 一番左がアクセント（1拍目）<br>
-      ● 細かいリズム＋プリセットで「16ビート」「ファンクのノリ」などを体感できます
+      ● プリセット＋細かいリズム＋テンポ階段で、ジャンル別のノリとテンポアップ練習ができます
     </div>
   </div>
 
   <script>
+    // ========= オーディオ部分 =========
     let audioCtx = null;
 
     function initAudioContext() {
@@ -275,6 +324,7 @@
       osc.stop(t + 0.05);
     }
 
+    // ========= DOM参照 =========
     const bpmSlider = document.getElementById("bpmSlider");
     const bpmInput = document.getElementById("bpmInput");
     const bpmDisplay = document.getElementById("bpmDisplay");
@@ -284,9 +334,15 @@
     const subLabel = document.getElementById("subLabel");
     const presetSelect = document.getElementById("preset");
     const presetLabel = document.getElementById("presetLabel");
+    const ladderStepInput = document.getElementById("ladderStep");
+    const ladderIntervalInput = document.getElementById("ladderInterval");
+    const ladderCountInput = document.getElementById("ladderCount");
+    const ladderEnabledCheckbox = document.getElementById("ladderEnabled");
+    const ladderStatus = document.getElementById("ladderStatus");
     const toggleBtn = document.getElementById("toggleBtn");
     const indicatorRow = document.getElementById("indicatorRow");
 
+    // ========= 状態 =========
     let isPlaying = false;
     let schedulerTimerID = null;
     let currentBeat = 0;
@@ -296,6 +352,11 @@
     const lookahead = 25.0;
     const scheduleAheadTime = 0.1;
 
+    // テンポ階段用
+    let ladderTimerID = null;
+    let ladderStepsRemaining = 0;
+
+    // ========= ユーティリティ =========
     function clampBPM(value) {
       if (isNaN(value)) return 120;
       return Math.min(240, Math.max(40, value));
@@ -304,6 +365,11 @@
     function clampBeats(value) {
       if (isNaN(value)) return 4;
       return Math.min(8, Math.max(1, value));
+    }
+
+    function clampInt(val, min, max, fallback) {
+      if (isNaN(val)) return fallback;
+      return Math.min(max, Math.max(min, val));
     }
 
     function getStepsPerBeat() {
@@ -330,6 +396,11 @@
       presetLabel.textContent = text;
     }
 
+    function setLadderStatus(active) {
+      ladderStatus.textContent = active ? "ON" : "OFF";
+      ladderStatus.style.color = active ? "#34d399" : "#9ca3af";
+    }
+
     function updateIndicatorDots() {
       const beatsPerBar = clampBeats(parseInt(beatsPerBarInput.value || "4", 10));
       indicatorRow.innerHTML = "";
@@ -349,6 +420,7 @@
       });
     }
 
+    // ========= プリセットのクリック種別決定 =========
     function getClickKindForPreset(preset, beatIndex, stepInBeat, stepsPerBeat) {
       const isBeatHead = (stepInBeat === 0);
 
@@ -401,6 +473,7 @@
       return baseKind();
     }
 
+    // ========= 時間進行（サブディビジョン単位） =========
     function advanceStep() {
       const bpm = clampBPM(parseInt(bpmInput.value || "120", 10));
       const beatsPerBar = clampBeats(parseInt(beatsPerBarInput.value || "4", 10));
@@ -415,6 +488,7 @@
       currentStep = (currentStep + 1) % stepsPerBar;
     }
 
+    // ========= メインスケジューラ =========
     function scheduler() {
       if (!isPlaying || !audioCtx) return;
 
@@ -441,6 +515,81 @@
       schedulerTimerID = setTimeout(scheduler, lookahead);
     }
 
+    // ========= テンポ階段モード =========
+    function stopLadderTimer() {
+      if (ladderTimerID !== null) {
+        clearInterval(ladderTimerID);
+        ladderTimerID = null;
+      }
+      ladderStepsRemaining = 0;
+      setLadderStatus(false);
+    }
+
+    function startLadderIfNeeded() {
+      stopLadderTimer(); // 安全のため一旦止める
+      if (!ladderEnabledCheckbox.checked) {
+        setLadderStatus(false);
+        return;
+      }
+
+      const stepAmount = clampInt(
+        parseInt(ladderStepInput.value, 10),
+        1, 20, 4
+      );
+      const intervalSec = clampInt(
+        parseInt(ladderIntervalInput.value, 10),
+        3, 600, 30
+      );
+      const stepCount = clampInt(
+        parseInt(ladderCountInput.value, 10),
+        1, 100, 10
+      );
+
+      ladderStepInput.value = stepAmount;
+      ladderIntervalInput.value = intervalSec;
+      ladderCountInput.value = stepCount;
+
+      if (stepCount <= 0 || stepAmount <= 0) {
+        ladderEnabledCheckbox.checked = false;
+        setLadderStatus(false);
+        return;
+      }
+
+      ladderStepsRemaining = stepCount;
+      const intervalMs = intervalSec * 1000;
+
+      setLadderStatus(true);
+
+      ladderTimerID = setInterval(() => {
+        if (!isPlaying) {
+          stopLadderTimer();
+          return;
+        }
+        if (ladderStepsRemaining <= 0) {
+          stopLadderTimer();
+          ladderEnabledCheckbox.checked = false;
+          return;
+        }
+
+        let currentBpm = clampBPM(parseInt(bpmInput.value || "120", 10));
+        let newBpm = clampBPM(currentBpm + stepAmount);
+
+        // BPM更新
+        bpmInput.value = newBpm;
+        bpmSlider.value = newBpm;
+        bpmDisplay.textContent = newBpm;
+
+        restartIfPlaying();
+
+        ladderStepsRemaining -= 1;
+        if (ladderStepsRemaining <= 0) {
+          stopLadderTimer();
+          ladderEnabledCheckbox.checked = false;
+        }
+      }, intervalMs);
+    }
+
+    // ========= 再生・停止 =========
     function startMetronome() {
       if (isPlaying) return;
       initAudioContext();
@@ -457,6 +606,7 @@
       toggleBtn.classList.add("stop");
 
       scheduler();
+      startLadderIfNeeded(); // 再生開始時に階段モードもスタート
     }
 
     function stopMetronome() {
@@ -467,6 +617,8 @@
         clearTimeout(schedulerTimerID);
         schedulerTimerID = null;
       }
+
+      stopLadderTimer();
 
       toggleBtn.textContent = "▶ 再生";
       toggleBtn.classList.remove("stop");
@@ -492,9 +644,9 @@
       scheduler();
     }
 
-    // ===== イベント設定 =====
+    // ========= イベント設定 =========
 
-    // スライダー → 即反映（数値は常に有効なので clamp してもOK）
+    // スライダー → 即反映
     bpmSlider.addEventListener("input", () => {
       const bpm = clampBPM(parseInt(bpmSlider.value, 10));
       bpmInput.value = bpm;
@@ -502,27 +654,21 @@
       restartIfPlaying();
     });
 
-    // 数値入力：入力途中は書き戻さない
+    // 数値入力：途中は触らない
     bpmInput.addEventListener("input", () => {
       const raw = bpmInput.value;
       const num = parseInt(raw, 10);
 
-      if (isNaN(num)) {
-        // 空欄など：表示だけ何もしない（前のBPMが生きている）
-        return;
-      }
+      if (isNaN(num)) return;
 
-      // 表示だけ更新（まだ clamp しない）
       bpmDisplay.textContent = num;
 
-      // 有効範囲ならスライダーも追従させる
       if (num >= 40 && num <= 240) {
         bpmSlider.value = num;
         restartIfPlaying();
       }
     });
 
-    // 数値入力が確定した時にだけ補正＆書き戻し
     bpmInput.addEventListener("change", () => {
       let num = parseInt(bpmInput.value, 10);
       if (isNaN(num)) num = 120;
@@ -564,6 +710,25 @@
       restartIfPlaying();
     });
 
+    // テンポ階段 ON/OFF
+    ladderEnabledCheckbox.addEventListener("change", () => {
+      if (!isPlaying) {
+        // 再生前にONだけしておくパターン
+        if (ladderEnabledCheckbox.checked) {
+          setLadderStatus(false); // 再生開始まで保留
+        } else {
+          stopLadderTimer();
+        }
+      } else {
+        // 再生中にON/OFFしたとき
+        if (ladderEnabledCheckbox.checked) {
+          startLadderIfNeeded();
+        } else {
+          stopLadderTimer();
+        }
+      }
+    });
+
     toggleBtn.addEventListener("click", () => {
       if (!isPlaying) {
         startMetronome();
@@ -576,6 +741,7 @@
     updateSubLabel();
     updatePresetLabel();
     updateIndicatorDots();
+    setLadderStatus(false);
   </script>
 </body>
 </html>
