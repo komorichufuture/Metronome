@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <!-- スマホ向け表示 -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>シンプルメトロノーム（高精度・スマホ対応）</title>
+  <title>シンプルメトロノーム（サブディビジョン対応）</title>
   <style>
     * {
       box-sizing: border-box;
@@ -61,6 +61,15 @@
     .control-group input[type="range"] {
       width: 100%;
       touch-action: pan-y; /* スクロールとの競合を軽減 */
+    }
+    .control-group select {
+      width: 100%;
+      padding: 6px 8px;
+      border-radius: 8px;
+      border: 1px solid #4b5563;
+      background: #020617;
+      color: #e5e7eb;
+      font-size: 14px;
     }
     .flex-row {
       display: flex;
@@ -149,7 +158,7 @@
 <body>
   <div class="metronome">
     <h1>メトロノーム</h1>
-    <div class="subtitle">高精度スケジューリング版（AudioContext）</div>
+    <div class="subtitle">高精度＋サブディビジョン対応（AudioContext）</div>
 
     <!-- BPM -->
     <div class="control-group">
@@ -187,6 +196,20 @@
       >
     </div>
 
+    <!-- サブディビジョン（細かいリズム） -->
+    <div class="control-group">
+      <label for="subdivision">
+        <span>細かいリズム</span>
+        <span id="subLabel">なし</span>
+      </label>
+      <select id="subdivision">
+        <option value="1">なし（1拍のみ）</option>
+        <option value="2">8分音符（1拍を2つ）</option>
+        <option value="3">3連符（1拍を3つ）</option>
+        <option value="4">16分音符（1拍を4つ）</option>
+      </select>
+    </div>
+
     <!-- ボタン -->
     <button id="toggleBtn">▶ 再生</button>
 
@@ -194,7 +217,7 @@
     <div id="indicatorRow" class="indicator-row"></div>
     <div class="small-text">
       ● 一番左がアクセント（1拍目）<br>
-      ● 再生中にBPMや拍数を変えると即反映されます
+      ● 「細かいリズム」で 8分 / 3連符 / 16分 を体感できます
     </div>
   </div>
 
@@ -210,19 +233,31 @@
       }
     }
 
-    // time を指定してクリックを鳴らす（高精度スケジューリング用）
-    function playClick(isAccent, time) {
+    // kind: "accent" | "beat" | "sub"
+    function playClick(kind, time) {
       if (!audioCtx) return;
       const t = (typeof time === "number") ? time : audioCtx.currentTime;
 
       const osc = audioCtx.createOscillator();
       const gain = audioCtx.createGain();
 
-      // アクセントと通常拍で高さを変える
-      osc.frequency.value = isAccent ? 2000 : 1300;
+      let freq = 1500;
+      let level = 0.8;
 
-      // 超短いエンベロープで「カチッ」
-      gain.gain.setValueAtTime(1, t);
+      if (kind === "accent") {
+        freq = 2000;
+        level = 1.0;
+      } else if (kind === "beat") {
+        freq = 1500;
+        level = 0.8;
+      } else if (kind === "sub") {
+        freq = 1100;
+        level = 0.5;
+      }
+
+      osc.frequency.value = freq;
+
+      gain.gain.setValueAtTime(level, t);
       gain.gain.exponentialRampToValueAtTime(0.001, t + 0.03);
 
       osc.connect(gain);
@@ -238,12 +273,15 @@
     const bpmDisplay = document.getElementById("bpmDisplay");
     const beatsPerBarInput = document.getElementById("beatsPerBar");
     const beatsLabel = document.getElementById("beatsLabel");
+    const subdivisionSelect = document.getElementById("subdivision");
+    const subLabel = document.getElementById("subLabel");
     const toggleBtn = document.getElementById("toggleBtn");
     const indicatorRow = document.getElementById("indicatorRow");
 
     let isPlaying = false;
     let schedulerTimerID = null;
     let currentBeat = 0;      // 0〜(beatsPerBar - 1)
+    let currentStep = 0;      // 0〜(stepsPerBar - 1)
     let nextNoteTime = 0.0;   // AudioContext 時間（秒）
 
     const lookahead = 25.0;        // scheduler を呼ぶ間隔（ms）
@@ -257,6 +295,21 @@
     function clampBeats(value) {
       if (isNaN(value)) return 4;
       return Math.min(8, Math.max(1, value));
+    }
+
+    function getStepsPerBeat() {
+      const v = parseInt(subdivisionSelect.value, 10);
+      if (v === 2 || v === 3 || v === 4) return v;
+      return 1; // なし
+    }
+
+    function updateSubLabel() {
+      const steps = getStepsPerBeat();
+      let text = "なし";
+      if (steps === 2) text = "8分音符（2分割）";
+      else if (steps === 3) text = "3連符（3分割）";
+      else if (steps === 4) text = "16分音符（4分割）";
+      subLabel.textContent = text;
     }
 
     function updateIndicatorDots() {
@@ -282,39 +335,59 @@
       });
     }
 
-    // 1拍進める（次のノートの時間を計算）
-    function advanceNote() {
-      const beatsPerBar = clampBeats(parseInt(beatsPerBarInput.value || "4", 10));
+    // 1ステップ進める（最小単位：サブディビジョン1つ）
+    function advanceStep() {
       const bpm = clampBPM(parseInt(bpmInput.value || "120", 10));
-      const secondsPerBeat = 60.0 / bpm;
+      const beatsPerBar = clampBeats(parseInt(beatsPerBarInput.value || "4", 10));
+      const stepsPerBeat = getStepsPerBeat();
 
-      nextNoteTime += secondsPerBeat;                 // 次の発音時刻
-      currentBeat = (currentBeat + 1) % beatsPerBar;  // 拍インデックス更新
+      const secondsPerBeat = 60.0 / bpm;
+      const secondsPerStep = secondsPerBeat / stepsPerBeat;
+
+      nextNoteTime += secondsPerStep;
+
+      const stepsPerBar = beatsPerBar * stepsPerBeat;
+      currentStep = (currentStep + 1) % stepsPerBar;
     }
 
     // クリックを future time にスケジュールする
-    function scheduleNote(beatNumber, time) {
-      const isAccent = (beatNumber === 0);
-      playClick(isAccent, time);
+    function scheduleNote(kind, time) {
+      playClick(kind, time);
     }
 
     // 高精度スケジューラ
     function scheduler() {
       if (!isPlaying || !audioCtx) return;
 
-      // AudioContext の現在時刻から scheduleAheadTime 秒先までをカバーするように、クリックを予約
-      while (nextNoteTime < audioCtx.currentTime + scheduleAheadTime) {
-        // 今の currentBeat に対してクリックを予約
-        scheduleNote(currentBeat, nextNoteTime);
+      const beatsPerBar = clampBeats(parseInt(beatsPerBarInput.value || "4", 10));
+      const stepsPerBeat = getStepsPerBeat();
 
-        // ビジュアル更新（少し先行するが、テンポ精度優先）
+      while (nextNoteTime < audioCtx.currentTime + scheduleAheadTime) {
+        const stepsPerBar = beatsPerBar * stepsPerBeat;
+        const beatIndex = Math.floor(currentStep / stepsPerBeat); // 今のステップが属する拍
+        const stepInBeat = currentStep % stepsPerBeat;            // 拍の中で何個目か
+
+        let kind = "sub";
+        if (stepInBeat === 0) {
+          // 拍頭
+          if (beatIndex === 0) {
+            kind = "accent";
+          } else {
+            kind = "beat";
+          }
+        } else {
+          kind = "sub";
+        }
+
+        scheduleNote(kind, nextNoteTime);
+
+        // 表示側は常に「今の拍」を反映
+        currentBeat = beatIndex;
         setActiveBeat();
 
-        // 次の拍へ進める
-        advanceNote();
+        advanceStep();
       }
 
-      // 次回のスケジューラ呼び出し予約
       schedulerTimerID = setTimeout(scheduler, lookahead);
     }
 
@@ -324,6 +397,7 @@
       if (!audioCtx) return;
 
       currentBeat = 0;
+      currentStep = 0;
       updateIndicatorDots();
 
       // ほんの少し先（0.05秒後）からスタート
@@ -349,6 +423,7 @@
       toggleBtn.classList.remove("stop");
 
       currentBeat = 0;
+      currentStep = 0;
       updateIndicatorDots();
     }
 
@@ -362,6 +437,7 @@
       }
 
       currentBeat = 0;
+      currentStep = 0;
       updateIndicatorDots();
       nextNoteTime = audioCtx.currentTime + 0.05;
 
@@ -385,24 +461,28 @@
       restartIfPlaying();
     });
 
-    // 拍子：入力途中はいじらず、確定したら補正＆反映
+    // 拍子：確定したら補正＆反映
     beatsPerBarInput.addEventListener("change", () => {
       let raw = parseInt(beatsPerBarInput.value, 10);
-
-      // 空や変な値 → デフォルト4
       if (isNaN(raw)) {
         raw = 4;
       }
-
       const beats = clampBeats(raw); // 1〜8に収める
-
-      // 範囲外だった場合だけ書き戻す
       if (beats !== raw) {
         beatsPerBarInput.value = beats;
       }
-
       beatsLabel.textContent = beats + " 拍";
       currentBeat = 0;
+      currentStep = 0;
+      updateIndicatorDots();
+      restartIfPlaying();
+    });
+
+    // サブディビジョン変更
+    subdivisionSelect.addEventListener("change", () => {
+      updateSubLabel();
+      currentBeat = 0;
+      currentStep = 0;
       updateIndicatorDots();
       restartIfPlaying();
     });
@@ -416,6 +496,7 @@
     });
 
     // 初期表示
+    updateSubLabel();
     updateIndicatorDots();
   </script>
 </body>
